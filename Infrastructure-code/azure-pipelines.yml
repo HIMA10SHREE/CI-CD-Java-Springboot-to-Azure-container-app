@@ -1,0 +1,41 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+- none
+
+variables:
+  resourceGroupName: 'Your-Resource-Group-Name'
+  location: 'Your-Location'
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+- task: AzureCLI@2
+  displayName: Preview Bicep Changes
+  inputs:
+    azureSubscription: 'Your-Service-Connection'
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      az group create --name $(resourceGroupName) --location $(location)
+      az deployment group what-if --resource-group $(resourceGroupName) --template-file Templates/A_C_R.bicep --parameters @Parameter/ACRbicep.json
+    
+- task: AzureCLI@2
+  displayName: Deploy ACR To Azure
+  inputs:
+    azureSubscription: 'Your-Service-Connection'
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      az deployment group create --resource-group $(resourceGroupName) --template-file Templates/A_C_R.bicep --parameters @Parameter/ACRbicep.json
+- task: AzureCLI@2
+  displayName: Deploy ACA to Azure
+  inputs:
+    azureSubscription: 'Your-Service-Connection'
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
+    inlineScript: 'az deployment group create --resource-group $(resourceGroupName) --template-file Templates/ACA.bicep --parameters @Parameter/ACAbicep.json'
