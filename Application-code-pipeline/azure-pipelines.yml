@@ -1,0 +1,94 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+- none
+
+variables:
+  rg_name: 'Your-Resource-Group-Name'
+  msiname: 'Your-Managed-Identity-Name'
+  subscription: 'Your-Subscription-Name'
+  acaname : 'Your-Container-App-Name'
+  imageurl : 'xyz.azurecr.io/<imagename>:$(Build.BuildId)'
+  acaenvname : 'Your-Environment-Name'
+  acrserver : '<xyz>.azurecr.io'
+  acridentity : '/subscriptions/<subscription>/resourceGroups/<rg_name>/providers/Microsoft.ManagedIdentity/userAssignedIdentities/<msiname>' 
+  ingress: 'external'
+  targetport : '80'
+  transport : 'auto'
+  revisionsmode : 'single'
+  cpu : '0.5'
+  memory : '1.0Gi'
+  minreplicas : '1'
+  maxreplicas : '10'
+  
+
+pool:
+  vmImage: ubuntu-latest
+
+
+steps:
+- script: 'wget https://dlcdn.apache.org/maven/maven-3/3.9.5/binaries/apache-maven-3.9.5-bin.zip'
+- task: ExtractFiles@1
+  displayName: Extracting Maven 
+  inputs:
+      archiveFilePatterns: 'apache-maven-3.9.5-bin.zip'
+      destinationFolder: '$(build.sourcesdirectory)/maven'
+
+- task: Maven@3
+  inputs:
+    mavenPomFile: 'pom.xml'
+    publishJUnitResults: true
+    testResultsFiles: '**/surefire-reports/TEST-*.xml'
+    codeCoverageToolOption: 'JaCoCo'
+    codeCoverageSourceDirectories: 'src'
+    codeCoverageFailIfEmpty: true
+    javaHomeOption: 'JDKVersion'
+    jdkVersionOption: '1.17'
+    mavenVersionOption: 'Path'
+    mavenDirectory: '$(build.sourcesdirectory)/maven/apache-maven-3.9.5'
+    mavenSetM2Home: true
+    mavenOptions: '-Xmx3072m'
+    mavenAuthenticateFeed: false
+    effectivePomSkip: false
+    sonarQubeRunAnalysis: false
+
+
+- task: Docker@0
+  displayName: Build docker image
+  inputs:
+    containerregistrytype: 'Azure Container Registry'
+    azureSubscription: 'Your-Service-Connection-Name'
+    azureContainerRegistry: '{"loginServer":"<acr Login server>", "id" : "/subscriptions/<subscription>/resourceGroups/<rg_name>/providers/Microsoft.ContainerRegistry/registries/<acr-name>"}'
+    action: 'Build an image'
+    dockerFile: '**/Dockerfile'
+    imageName: '<imagename>:$(Build.BuildId)'
+  
+
+
+- task: Docker@0
+  displayName: Push docker image
+  inputs:
+    containerregistrytype: 'Azure Container Registry'
+    azureSubscription: 'Your-Service-Connection-Name'
+    azureContainerRegistry: '{"loginServer":"<acr Login server>", "id" : "/subscriptions/<subscription>/resourceGroups/<rg_name>/providers/Microsoft.ContainerRegistry/registries/<acr-name>"}'
+    action: 'Push an image'
+    imageName: '<imagename>:$(Build.BuildId)'
+
+- task: AzureCLI@2
+  displayName: Managed identity
+  inputs:
+    azureSubscription: 'Your-Service-Connection-Name'
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      msiclid=$(az identity show -g $(rg_name) -n $(msiname) --subscription $(subscription) --query clientId --output tsv)
+      echo $msiclid
+      echo "Installing containerapp extension"
+      az extension add --name containerapp --upgrade
+      az provider register --namespace Microsoft.App
+      az provider register --namespace Microsoft.OperationalInsights
+      echo "Starting Deploying"
+      az containerapp create -n $(acaname) -g $(rg_name) --image $(imageurl) --environment $(acaenvname) --subscription $(subscription) --registry-server $(acrserver) --registry-identity "$(acridentity)" --ingress $(ingress) --target-port $(targetport) --transport $(transport) --revisions-mode $(revisionsmode) --cpu $(cpu) --memory $(memory) --min-replicas $(minreplicas) --max-replicas $(maxreplicas) --env-vars APP_CONFIG_ENDPOINT="https://184fbba4-535c-43d3-94b8-8ef1956e7306.ods.opinsights.azure.com" MSI_CLIENT_ID="$msiclid"
